@@ -72,19 +72,28 @@ swipl -s informed_search.pl
 ?- find_best_path_astar(Path, Collected, Cost, 10), print_steps(Path).
 ```
 
+## Code Structure
+```
+drone-routing-ai/
+├── uninformed_search.pl    # BFS implementation
+├── informed_search.pl      # A* with energy constraints
+├── test_cases/             # Sample grid configurations
+└── README.md               # This document
+```
+
 ### Key Predicates
 
 #### Problem 1
 
-`find_best_path/2`: Main solution predicate
-`generate_step_grid/4`: Grid visualization
-`bfs/4`: BFS implementation
+- `find_best_path/2`: Main solution predicate
+- `generate_step_grid/4`: Grid visualization
+- `bfs/4`: BFS implementation
 
 #### Problem 2
 
-`find_best_path_astar/4`: A* solution with energy
-`next_state_astar/3`: State generation with energy
-`heuristic/3`: Custom heuristic function
+- `find_best_path_astar/4`: A* solution with energy
+- `next_state_astar/3`: State generation with energy
+- `heuristic/3`: Custom heuristic function
 
 ## Example Usage
 ### Problem 1 Output
