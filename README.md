@@ -74,10 +74,9 @@ swipl -s informed_search.pl
 
 ## Code Structure
 ```
-drone-routing-ai/
+/
 ├── uninformed_search.pl    # BFS implementation
 ├── informed_search.pl      # A* with energy constraints
-├── test_cases/             # Sample grid configurations
 └── README.md               # This document
 ```
 
