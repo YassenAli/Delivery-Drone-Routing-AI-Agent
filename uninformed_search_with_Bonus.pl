@@ -1,148 +1,113 @@
-% Define the initial grid
-initial_grid([
-    ['D', '-', 'P', '-', 'O'],
-    ['-', 'O', '-', '-', 'P'],
-    ['-', '-', 'O', 'P', '-'],
-    ['P', 'O', '-', '-', '-'],
-    ['-', '-', 'P', 'O', '-']
-]).
+% Generic Prolog delivery planner with dynamic MxN city grid
 
-% Find the drone's initial position
+% Entry point: supply Grid as a list of lists of chars (MxN)
+% Example invocation:
+% ?- Grid = [ ['D','-','P'], ['-','O','-'], ['P','-','-'] ], find_best_path(Grid, Path, Collected).
+% Grid = [['D','-','P','-','O'],['-','O','-','-','P'],['-','-','O','P','-'],['P','O','-','-','-'],['-','-','P','O','-']], find_best_path(Grid, Path, Collected).
+
+% Find the drone's starting position
 find_drone(Grid, (X, Y)) :-
     nth1(X, Grid, Row),
     nth1(Y, Row, 'D').
 
-% Collect all initial delivery points (P's)
+% Collect all delivery points
 find_ps(Grid, Ps) :-
     findall((X, Y), (nth1(X, Grid, Row), nth1(Y, Row, 'P')), Ps).
 
-% Movement directions (up, down, left, right)
-move(up, (X, Y), (X1, Y)) :- X1 is X - 1, X1 >= 1.
-move(down, (X, Y), (X1, Y)) :- X1 is X + 1.
-move(left, (X, Y), (X, Y1)) :- Y1 is Y - 1, Y1 >= 1.
+% Four-directional moves
+move(up,    (X, Y), (X1, Y)) :- X1 is X - 1.
+move(down,  (X, Y), (X1, Y)) :- X1 is X + 1.
+move(left,  (X, Y), (X, Y1)) :- Y1 is Y - 1.
 move(right, (X, Y), (X, Y1)) :- Y1 is Y + 1.
 
-% Validate grid bounds dynamically
-grid_size(Rows, Cols) :-
-    initial_grid(Grid),
+% Determine grid dimensions
+grid_size(Grid, Rows, Cols) :-
     length(Grid, Rows),
-    ( Rows > 0 -> nth1(1, Grid, FirstRow), length(FirstRow, Cols) ; Cols = 0 ).
+    ( Rows > 0 -> nth1(1, Grid, First), length(First, Cols) ; Cols = 0 ).
 
-within_bounds(X, Y) :-
-    grid_size(Rows, Cols),
+% Check if a position is inside the grid
+within_bounds(Grid, X, Y) :-
+    grid_size(Grid, Rows, Cols),
     X >= 1, X =< Rows,
     Y >= 1, Y =< Cols.
 
-% Get cell value
-grid_cell(X, Y, Cell) :-
-    initial_grid(Grid),
-    nth1(X, Grid, Row),
-    nth1(Y, Row, Cell).
+% Read a cell's content
+grid_cell(Grid, X, Y, C) :-
+    nth1(X, Grid, Row), nth1(Y, Row, C).
 
-% Generate valid next states
-next_state(State, NextState) :-
-    State = state((X, Y), RemPs, Path, Collected),
-    move(_Dir, (X, Y), (NewX, NewY)),
-    within_bounds(NewX, NewY),
-    grid_cell(NewX, NewY, Cell),
+% Generate successor states
+next_state(Grid, state(Pos, Rem, Path, Cnt),
+           state(NewPos, NewRem, [NewPos|Path], NewCnt)) :-
+    Pos = (X, Y),
+    move(_, (X, Y), (NX, NY)),
+    within_bounds(Grid, NX, NY),
+    grid_cell(Grid, NX, NY, Cell),
     Cell \= 'O',
-    ( (Cell == 'P', member((NewX, NewY), RemPs)) ->
-        NewCollected is Collected + 1,
-        select((NewX, NewY), RemPs, NewRemPs)
-    ; NewCollected = Collected, NewRemPs = RemPs
-    ),
-    \+ member((NewX, NewY), Path),
-    NextState = state((NewX, NewY), NewRemPs, [(NewX, NewY) | Path], NewCollected).
+    ( Cell == 'P', select((NX, NY), Rem, NewRem) -> NewCnt is Cnt + 1
+    ; NewRem = Rem, NewCnt = Cnt ),
+    NewPos = (NX, NY),
+    \+ member(NewPos, Path).
 
-% BFS to find the path with maximum P's
-bfs([], _, BestState, BestState).
-bfs([State | Rest], Visited, CurrentBest, FinalBest) :-
-    ( better(State, CurrentBest) -> NewBest = State ; NewBest = CurrentBest ),
-    State = state((PosX, PosY), RemPs, _, _),
-    ( member(((PosX, PosY), RemPs), Visited) ->
-        bfs(Rest, Visited, NewBest, FinalBest)
-    ;
-        findall(NextState, next_state(State, NextState), NextStates),
-        append(Rest, NextStates, NewQueue),
-        bfs(NewQueue, [((PosX, PosY), RemPs) | Visited], NewBest, FinalBest)
+% Prefer more-collected states
+better(state(_,_,_,C1), state(_,_,_,C2)) :- C1 > C2.
+
+% BFS to find max collection
+bfs(_, [], Best, Best).
+bfs(Grid, [S|Qs], CurBest, Final) :-
+    ( better(S, CurBest) -> NB = S ; NB = CurBest ),
+    S = state(Pos, Rem, _, _),
+    ( member((Pos, Rem), Qs) ->
+        bfs(Grid, Qs, NB, Final)
+    ;   findall(NX, next_state(Grid, S, NX), Ns),
+        append(Qs, Ns, NewQs),
+        bfs(Grid, NewQs, NB, Final)
     ).
 
-better(state(_, _, _, C1), state(_, _, _, C2)) :- C1 > C2.
+% Initialize search state
+initial_state(Grid, state(Start, SortedPs, [Start], 0)) :-
+    find_drone(Grid, Start),
+    find_ps(Grid, Ps), sort(Ps, SortedPs).
 
-% Initialize state
-initial_state(State) :-
-    initial_grid(Grid),
-    find_drone(Grid, (X, Y)),
-    find_ps(Grid, Ps),
-    sort(Ps, SortedPs),
-    State = state((X, Y), SortedPs, [(X, Y)], 0).
+% Main: solve and print
+find_best_path(Grid, Path, Collected) :-
+    initial_state(Grid, Init),
+    bfs(Grid, [Init], Init, state(_,_,Rev,Collected)),
+    reverse(Rev, Path),
+    print_steps(Grid, Path).
 
-% Generate the grid for a specific step in the path
-generate_step_grid(InitialGrid, Path, StepIndex, GeneratedGrid) :-
-    N is StepIndex + 1,
-    positions_up_to(Path, N, Positions),
-    nth0(StepIndex, Positions, CurrentPos),
-    findall(
-        NewRow,
-        ( nth1(X, InitialGrid, InitialRow),
-          findall(
-              NewCell,
-              ( nth1(Y, InitialRow, InitialCell),
-                ( member((X,Y), Positions) ->
-                    ( (X,Y) = CurrentPos -> NewCell = 'D'
-                    ; NewCell = '*'
-                    )
-                ; NewCell = InitialCell
-                )
-              ),
-              NewRow
-          )
-        ),
-        GeneratedGrid
-    ).
-
-% Helper to get the first N elements of the path
-positions_up_to(Path, N, Positions) :-
-    length(Positions, N),
-    append(Positions, _, Path).
-
-% Print the grid in a readable format
-print_grid(Grid) :-
-    forall(member(Row, Grid),
-           ( atomic_list_concat(Row, ' ', RowStr),
-             write(RowStr), nl
-           )).
-
-% Main predicate: find the best path and print results
-find_best_path(Path, Collected) :-
-    initial_state(InitialState),
-    bfs([InitialState], [], state((0,0), [], [], -1), BestState),
-    BestState = state(_, _, RevPath, Collected),
-    reverse(RevPath, Path),
-    print_steps(Path).
-
-% Print the initial grid, intermediate steps, and final grid
-print_steps(Path) :-
-    initial_grid(InitialGrid),
-    write('Drone Route:'), nl,
-    print_grid(InitialGrid), nl,
+% Print initial, each step, and final grids
+print_steps(Grid, Path) :-
+    write('Initial Grid:'), nl, print_grid(Grid), nl,
     write('Steps:'), nl,
-    length(Path, PathLen),
-    ( PathLen > 1 ->
-        MaxStep is PathLen - 2,
-        forall(between(0, MaxStep, StepIndex),
-               ( generate_step_grid(InitialGrid, Path, StepIndex, Grid),
-                 print_grid(Grid), nl
-               ))
-    ; true
-    ),
-    write('Final:'), nl,
-    ( PathLen >= 1 ->
-        LastStepIndex is PathLen - 1,
-        generate_step_grid(InitialGrid, Path, LastStepIndex, FinalGrid)
-    ; FinalGrid = InitialGrid
-    ),
-    print_grid(FinalGrid).
+    length(Path, L),
+    ( L > 1 ->
+        Max is L - 2,
+        forall(between(0, Max, I),
+               ( generate_step_grid(Grid, Path, I, G), print_grid(G), nl ))
+    ; true ),
+    write('Final Grid:'), nl,
+    generate_step_grid(Grid, Path, L-1, FG), print_grid(FG).
 
-% Example usage:
-% ?- find_best_path(Path, Collected).
+% Build the grid at step I (0-based)
+generate_step_grid(Grid, Path, I, NewGrid) :-
+    N1 is I + 1,
+    positions_up_to(Path, N1, Visited),
+    nth1(N1, Visited, DronePos),
+    findall(Row2,
+        ( nth1(X, Grid, Row1),
+          findall(Cell2,
+              ( nth1(Y, Row1, C1),
+                ( member((X,Y), Visited)
+                  -> ( (X,Y)==DronePos -> Cell2='D' ; Cell2='*' )
+                  ; Cell2=C1 )
+              ), Row2
+          )
+        ), NewGrid).
+
+% Take first N elements of a list
+positions_up_to(List, N, Prefix) :-
+    length(Prefix, N), append(Prefix, _, List).
+
+% Utility: print any grid
+print_grid(G) :-
+    forall(member(R, G), (atomic_list_concat(R, ' ', S), writeln(S))).
